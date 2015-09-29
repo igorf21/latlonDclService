@@ -27,6 +27,11 @@
     <maven.compiler.source>1.7</maven.compiler.source>
   </properties>
   <dependencies>
+   <dependency>
+      <groupId>bsm.dcl.config</groupId>
+      <artifactId>dal</artifactId>
+      <version>1.0</version>
+    </dependency>
     <dependency>
       <groupId>org.apache.camel</groupId>
       <artifactId>camel-core</artifactId>
@@ -48,6 +53,23 @@
       <version>1.2.17</version>
     </dependency>
     <dependency>
+      <groupId>com.microsoft.sqlserver</groupId>
+      <artifactId>sqljdbc4</artifactId>
+      <version>4.0</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>commons-dbcp</groupId>
+      <artifactId>commons-dbcp</artifactId>
+      <version>1.4</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.camel</groupId>
+      <artifactId>camel-sql</artifactId>
+      <version>2.15.1.redhat-620133</version>
+    </dependency>
+    <dependency>
       <groupId>org.apache.activemq</groupId>
       <artifactId>activemq-camel</artifactId>
       <version>5.11.0.redhat-620133</version>
@@ -63,11 +85,6 @@
       <artifactId>camel-test</artifactId>
       <version>2.15.1.redhat-620133</version>
       <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.camel</groupId>
-      <artifactId>camel-jms</artifactId>
-      <version>2.15.1.redhat-620133</version>
     </dependency>
   </dependencies>
   <repositories>
@@ -205,6 +222,8 @@
           <instructions>
             <Bundle-SymbolicName>latlon.railService</Bundle-SymbolicName>
             <Private-Package>bsm.prototype.dcl.latlon.railService.*</Private-Package>
+            <Import-Package>javax.sql,com.microsoft.sqlserver.jdbc,*</Import-Package>
+			<DynamicImport-Package>*</DynamicImport-Package>
           </instructions>
         </configuration>
       </plugin>

@@ -12,9 +12,9 @@
       <cm:property name="amq.username" value="admin"/>
       <cm:property name="amq.password" value="admin"/>
       <cm:property name="amq.url" value="discovery:(fabric:latlon)"/>
-      <cm:property name="db.username" value="devsa"/>
-      <cm:property name="db.password" value="Magma1"/>
-      <cm:property name="db.url" value="jdbc:sqlserver://10.10.110.123\mssqlserver2012;databaseName=main_test2"/>
+      <cm:property name="db.username" value="sa"/>
+      <cm:property name="db.password" value="September00"/>
+      <cm:property name="db.url" value="jdbc:sqlserver://localhost;databaseName=main_test2"/>
     </cm:default-properties>
   </cm:property-placeholder>
 
@@ -43,57 +43,30 @@
 
 
 <!--*************** this is the JMS data source for AMQ *******************************************************-->
-
- <bean id="jmsConnectionFactory" class="org.apache.activemq.ActiveMQConnectionFactory">
-    <property name="brokerURL" value="discovery:(fabric:latlon)"/>
-    <property name="userName" value="${amq.username}"/>
-    <property name="password" value="${amq.password}"/>
+ 
+ 
+  
+   <bean
+    id="decrypter"
+    class="bsm.prototype.dcl.latlon.Decrypter"
+    activation="eager">
+    <property name="deviceConfigService">
+      <reference
+        interface="bsm.dcl.config.dal.DeviceConfigService"
+        availability="mandatory" />
+    </property>
   </bean>
-
-  <bean id="pooledConnectionFactory" class="org.apache.activemq.pool.PooledConnectionFactory">
-    <property name="maxConnections" value="1"/>
-    <property name="maximumActiveSessionPerConnection" value="500"/>
-    <property name="connectionFactory" ref="jmsConnectionFactory"/>
-  </bean>
-
-  <bean id="activemq" class="org.apache.activemq.camel.component.ActiveMQComponent">
-    <property name="connectionFactory" ref="pooledConnectionFactory"/>
-  </bean>
-
-
-<bean id="dataProcessor" class="bsm.prototype.database.latlon.DataProcessor"/>
-
+  
   <camelContext xmlns="http://camel.apache.org/schema/blueprint">
   <propertyPlaceholder location="classpath:sql.properties" id="properties"/>
   <route id="LatLonDbToAMQ">
-    <from uri="sqlSrc:{{sql.selectMessage}}" id="Select Raw Message">
+    <from uri="sqlSrc:{{sql.selectMessage}}?consumer.delay=50000" id="Select Raw Message">
       <description>New messages from LatLon Database using provided view</description>
     </from>
-    <bean ref="decoder" method="decode" beanType="bsm.prototype.dcl.latlon.Decoder"/>
-    <log message="Message Type is : ${body[MESSAGE_TYPE_ID]}" loggingLevel="INFO" id="Trace Msg ID"/>
-    <multicast id="Check for Alarms">
-      <choice id="Switch Msg Type">
-        <when id="LMU Message">
-          <simple>${body[LMU_ID]} != null</simple>
-          <log message="Sending to AMQ : LMU" loggingLevel="INFO" id="Trace LMU"/>
-          <to uri="activemq:queue:LatLonLMUDevice" id="Send to LMU Q"/>
-        </when>
-        <when id="STU Message">
-          <simple>${body[STU_ID]} != null</simple>
-          <log message="Sending to AMQ : STU" loggingLevel="INFO" id="Trace STU"/>
-          <to uri="activemq:queue:LatLonSTUDevice" id="Send to STU Q"/>
-        </when>
-        <otherwise id="Other Message">
-          <log message="Specialized Unit" loggingLevel="INFO" id="Trace Other"/>
-          <to uri="activemq:queue:LatLonSpecializedDevice?timeToLive=2000" id="Send to Other Q"/>
-        </otherwise>
-      </choice>
-      <filter id="Process Alarms">
-        <simple>${body[MESSAGE_TYPE_ID]} == 4 || ${body[MESSAGE_TYPE_ID]} == 5</simple>
-        <log message="Alarm Message" loggingLevel="INFO" id="Trace Alarm"/>
-        <to uri="activemq:queue:LatLonAlarm" id="Send to Alrm Queue"/>
-      </filter>
-    </multicast>
+    <bean ref="decrypter" method="decryptMsg" id="Decryptor Bean"/>
+    <log message="Decrypted Message is : ${body}" loggingLevel="INFO" id="Trace Msg ID"/>
+    <bean ref="decrypter" method="decodeMsg" id="Decoder Bean"/>
+    <log message="Decoded Message is : ${body}" loggingLevel="INFO" id="Trace Msg ID"/>
   </route>
 </camelContext>
 

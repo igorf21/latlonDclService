@@ -1,4 +1,4 @@
-package bsm.prototype.database.latlon;
+package bsm.prototype.dcl.latlon;
 
 import java.nio.ByteBuffer;
 import java.util.HashMap;
@@ -15,22 +15,81 @@ public class testJavaProcessors {
 		//String decodedMsg = "0300407C403E0000A122011B09B21A5634A304C2A6AE020000050DEE3E0100A482B6080700E6AB000000000016010B08001A09B21A14012B00010000A31211071B140C090906";
 		//String encodedMsg = "0F0187140194B93A13D0939974B2B93C127D92F94704B1490C289499129B76B91C3E999499444444381FB49999999999B9999980999995F6B699B99999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999BFA5";
 		//String decodedMsg = "01809C29450900A18D80932DA40DB01A51821053D701002D08AE80239F000100111111972B81000000000080000075000006BE8E00800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
-		
+	
+	String hexStr = "0x0d";
 	int a = Integer.decode("0x0d");
+	int a1 = Integer.decode(hexStr);
 	int b = Integer.decode("0x00");
 	int c = a | b;
 	String binStr = Integer.toBinaryString(c);
 	int d = Integer.parseInt(binStr,2);
+
 		
 		initDecoderMap();
 		
 		String encriptedMsg = "0F0187140194B93A13D0939974B2B93C127D92F94704B1490C289499129B76B91C3E999499444444381FB49999999999B9999980999995F6B699B99999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999BFA5";
-		String decriptedMsg = decript(encriptedMsg);		
-		System.out.print(decriptedMsg);
+		//String decryptedPacket = decrypt(encriptedMsg);			
+		String decryptedPacket ="280100170D0000606358052E01D659EE1B2901C902F501FD01A302030000003001B585403E0000A12D010059EE1B0000CB34A3043EA7AE020C16";
+		
+		decode(decryptedPacket);
+		
+		short order = 1;
+		String test = "test" + Short.toString(order);
+		System.out.println(Short.toString(order));
+		System.out.println(order);
+	
+		
+			
+		
+
+	}
+	
+	public static void decode(String decryptedPacket)	{
+		
+		boolean hasuStu = false;
+		
+		while( decryptedPacket.length() > 4 ){
+			
+			String tmp = decryptedPacket.substring(0, 4);	//SUBSTRING(@decryptedPacket, 1, 4)), 1)
+			String tmp1 = reverseHexString(tmp);
+			int ddId = Integer.decode("0x"+tmp1);
+			decryptedPacket = decryptedPacket.substring(4, decryptedPacket.length());//SUBSTRING(@decryptedPacket, 5, LEN(@decryptedPacket) - 4);
+		
+			if ((ddId == 296 || ddId == 298) && !hasuStu )
+			{
+					hasuStu = true;
+					// Do something here later
+			}
+		
+		
+		
+		
+		
+		
+		
+		
+		}
+		
+		
+	}
+	
+	public static String reverseHexString (String hex_string)
+	{
+
+
+		String reverse_hex_string = "";
+		int counter = hex_string.length() - 1;
+
+		while( counter > -1 ){
+			reverse_hex_string = reverse_hex_string + hex_string.substring(counter - 1, counter + 1);
+			counter = counter - 2;
+		}
+
+		return reverse_hex_string;
+
 	}
 
-	public static void initDecoderMap() {
-
+	private static void initDecoderMap() {
 		decoderMap.put("0", "D");
 		decoderMap.put("1", "A");
 		decoderMap.put("2", "5");
@@ -48,10 +107,11 @@ public class testJavaProcessors {
 		decoderMap.put("E", "7");
 		decoderMap.put("F", "3");
 		
-		
 	}
 
-	private static String decript(String encodedMsg) {
+
+
+	private static String decrypt(String encodedMsg) {
 		
 		String packet = encodedMsg.substring(10, encodedMsg.length() - 4);
 		
@@ -60,16 +120,16 @@ public class testJavaProcessors {
 		int packetLength = packet.length();
 		
 		String sShift = encodedMsg.substring(iNybbleKey, iNybbleKey + 1);
-		int iShift = hexStringToSmallint('0' + sShift);
+		int iShift = hexStringToInt('0' + sShift);
 		
 		String outPacket = "";
 		
 		for (int i = 0; i < packetLength; i++){
 			
 			String fromValue = packet.substring(0,1);
-			String sToValue = convert(fromValue) ;
+			String sToValue = mapValues(fromValue) ;
 			
-			int iToValue = hexStringToSmallint('0' + sToValue);
+			int iToValue = hexStringToInt('0' + sToValue);
 			iToValue = iToValue - iShift + maxDigit;
 			iToValue = iToValue % maxDigit;
 			sToValue = Integer.toString(iToValue);
@@ -95,13 +155,13 @@ public class testJavaProcessors {
 		
 	}
 
-	private static String convert(String fromValue) {
+	private static String mapValues(String fromValue) {
 		
 		String toValue = decoderMap.get(fromValue);
 		return toValue;
 	}
 
-	private static int hexStringToSmallint(String input) {
+	private static int hexStringToInt(String input) {
 		
 		String bStr = "";
 		byte[] result = new byte[4];
