@@ -7,7 +7,8 @@
        http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
 
 
-<cm:property-placeholder id="placeholder" persistent-id="latlon.database.sendmsg">
+<cm:property-placeholder id="placeholder" persistent-id="latlon.database.sendmsg"
+	placeholder-prefix="$(" placeholder-suffix=")">
     <cm:default-properties>
       <cm:property name="amq.username" value="admin"/>
       <cm:property name="amq.password" value="admin"/>
@@ -17,8 +18,13 @@
       <cm:property name="db.url" value="jdbc:sqlserver://localhost;databaseName=main_test2"/>
     </cm:default-properties>
   </cm:property-placeholder>
-
   
+  <cm:property-placeholder id="SqlPropeties" persistent-id="sql.properties">
+  	<cm:default-properties>
+      <cm:property name="sql.selectMessage" value="Select TOP 1 * FROM MESSAGE_DECODER_QUEUE"/>
+      <cm:property name="sql.deleteMessage" value="DELETE FROM MESSAGE_REPORT_v2 WHERE MESSAGE_ID \= \:\#MESSAGE_ID"/>
+    </cm:default-properties>
+  </cm:property-placeholder>
 <!-- Imported OSGi services include the Transaction manager and JDBC DataSource -->
  <!--  
 <reference id="LatLon-db" interface="javax.sql.DataSource" availability="mandatory" filter="(datasource.name=SQL_Src_LL)"/> 
@@ -28,9 +34,9 @@
 
 <bean id="LatLon-db" class="org.apache.commons.dbcp.BasicDataSource" destroy-method="close">
   <property name="driverClassName" value="com.microsoft.sqlserver.jdbc.SQLServerDriver"/>
-  <property name="url" value="${db.url}"/>
-  <property name="username" value="${db.username}"/>
-  <property name="password" value="${db.password}"/>
+  <property name="url" value="$(db.url)"/>
+  <property name="username" value="$(db.username)"/>
+  <property name="password" value="$(db.password)"/>
 </bean>
 
 <!--*************************************************************************************************************************-->
@@ -58,15 +64,20 @@
   </bean>
   
   <camelContext xmlns="http://camel.apache.org/schema/blueprint">
-  <propertyPlaceholder location="classpath:sql.properties" id="properties"/>
+  <dataFormats>
+    <json library="Jackson" id="jasonFormater" prettyPrint="true" include="NON_NULL"/>
+  </dataFormats>
   <route id="LatLonDbToAMQ">
-    <from uri="sqlSrc:{{sql.selectMessage}}?consumer.delay=50000" id="Select Raw Message">
+    <from uri="sqlSrc:{{sql.selectMessage}}?consumer.delay=500000" id="Select Raw Message">
       <description>New messages from LatLon Database using provided view</description>
     </from>
     <bean ref="decrypter" method="decryptMsg" id="Decryptor Bean"/>
-    <log message="Decrypted Message is : ${body}" loggingLevel="INFO" id="Trace Msg ID"/>
+    <log message="Decrypted Message is : ${body}" loggingLevel="INFO" id="Trace Decrypted Msg"/>
     <bean ref="decrypter" method="decodeMsg" id="Decoder Bean"/>
-    <log message="Decoded Message is : ${body}" loggingLevel="INFO" id="Trace Msg ID"/>
+    <log message="Decoded Message is : ${body}" loggingLevel="INFO" id="Trace Decoded Msg"/>
+    <marshal ref="jasonFormater" id="Format to JSON"/>
+    <to uri="file:C:/temp"/>
+    <log message="JSON Message is : ${body}" loggingLevel="INFO" id="Trace JSON Msg"/>
   </route>
 </camelContext>
 

@@ -1,8 +1,21 @@
 package bsm.prototype.dcl.latlon;
 
-import java.nio.ByteBuffer;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
+
+import java.io.BufferedInputStream;
+import java.io.FileInputStream;
+import java.io.InputStream;
+import java.io.ObjectInput;
+import java.io.ObjectInputStream;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
+
+import bsm.dcl.config.dal.entities.DataDefinition;
+import bsm.dcl.config.dal.entities.UnitDataDefinition;
+import bsm.dcl.messaging.UnitMessage;
+import bsm.dcl.messaging.SensorRefrigiration;
 
 
 
@@ -16,59 +29,74 @@ public class testJavaProcessors {
 		//String encodedMsg = "0F0187140194B93A13D0939974B2B93C127D92F94704B1490C289499129B76B91C3E999499444444381FB49999999999B9999980999995F6B699B99999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999BFA5";
 		//String decodedMsg = "01809C29450900A18D80932DA40DB01A51821053D701002D08AE80239F000100111111972B81000000000080000075000006BE8E00800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
 	
-	String hexStr = "0x0d";
-	int a = Integer.decode("0x0d");
-	int a1 = Integer.decode(hexStr);
-	int b = Integer.decode("0x00");
-	int c = a | b;
-	String binStr = Integer.toBinaryString(c);
-	int d = Integer.parseInt(binStr,2);
+	//String hexStr = "0x0d";
+	//int a = Integer.decode("0x0d");
+	//int a1 = Integer.decode(hexStr);
+	//int b = Integer.decode("0x00");
+	//int c = a | b;
+	//String binStr = Integer.toBinaryString(c);
+	//int d = Integer.parseInt(binStr,2);
 
 		
-		initDecoderMap();
+		//initDecoderMap();		
+		//String encriptedMsg = "0F0187140194B93A13D0939974B2B93C127D92F94704B1490C289499129B76B91C3E999499444444381FB49999999999B9999980999995F6B699B99999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999BFA5";
+		//String decryptedPacket = decrypt(encriptedMsg);	
 		
-		String encriptedMsg = "0F0187140194B93A13D0939974B2B93C127D92F94704B1490C289499129B76B91C3E999499444444381FB49999999999B9999980999995F6B699B99999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999BFA5";
-		//String decryptedPacket = decrypt(encriptedMsg);			
 		String decryptedPacket ="280100170D0000606358052E01D659EE1B2901C902F501FD01A302030000003001B585403E0000A12D010059EE1B0000CB34A3043EA7AE020C16";
 		
-		decode(decryptedPacket);
-		
-		short order = 1;
-		String test = "test" + Short.toString(order);
-		System.out.println(Short.toString(order));
-		System.out.println(order);
-	
-		
-			
+		decode(decryptedPacket);			
 		
 
 	}
-	
+	@SuppressWarnings("unchecked")
 	public static void decode(String decryptedPacket)	{
 		
-		boolean hasuStu = false;
-		
-		while( decryptedPacket.length() > 4 ){
+
+
+		Decrypter decrypter = new Decrypter();	
+		Map<String,DataDefinition> dataDefinitions = null;
+		Map<String,UnitDataDefinition> unitDataDefinitions = null;
+		try{		
+			//--------------DeSerialize dataDefinition for unit test------------------------------------//
+			InputStream file = new FileInputStream("C:/TEMP/dataDefinition.ser");
+			InputStream buffer = new BufferedInputStream(file);
+			ObjectInput input = new ObjectInputStream (buffer);
+			dataDefinitions = (Map<String,DataDefinition>) input.readObject();
+			input.close();
 			
-			String tmp = decryptedPacket.substring(0, 4);	//SUBSTRING(@decryptedPacket, 1, 4)), 1)
-			String tmp1 = reverseHexString(tmp);
-			int ddId = Integer.decode("0x"+tmp1);
-			decryptedPacket = decryptedPacket.substring(4, decryptedPacket.length());//SUBSTRING(@decryptedPacket, 5, LEN(@decryptedPacket) - 4);
-		
-			if ((ddId == 296 || ddId == 298) && !hasuStu )
-			{
-					hasuStu = true;
-					// Do something here later
-			}
-		
-		
-		
-		
-		
-		
-		
-		
+			InputStream file1 = new FileInputStream("C:/TEMP/unitDataDefinition.ser");
+			InputStream buffer1 = new BufferedInputStream(file1);
+			ObjectInput input1 = new ObjectInputStream(buffer1);
+			unitDataDefinitions = (Map<String,UnitDataDefinition>) input1.readObject();
+			input1.close();
+			//-----------------------------------------------------------------------------------------//
 		}
+		catch(Exception e)
+		{
+			System.out.print(e.toString());
+
+		}
+		
+		try{	
+			decrypter.setDataDefinitions(dataDefinitions);
+			decrypter.setUnitDataDefinitions(unitDataDefinitions);
+			UnitMessage unitMsg = new UnitMessage();
+			SensorRefrigiration sensorRf = new SensorRefrigiration();
+			Date receiveDttm = new Date();
+			unitMsg.receiveDttm = receiveDttm.toString();
+			decrypter.setUnitMsg(unitMsg);
+			decrypter.setSensorRf(sensorRf);
+
+			String network ="K";
+			decrypter.decodeTest(decryptedPacket, network );	
+			
+			
+		}
+		catch(Exception e)
+		{
+			System.out.print(e.toString());
+			assertNull(e);
+		}			
 		
 		
 	}

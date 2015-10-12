@@ -2,14 +2,20 @@ package bsm.prototype.dcl.latlon;
 
 // Main parsing is in PROCEDURE [dbo].[usp_i_MessageDecoder]
 // Raw data is in dbo.MESSAGE_DECODER_QUEUE
-// Decoder is in EXEC dbo.usp_s_DecryptPacket @rawPacket, @outPacket = @decryptedPacket OUTPUT;
+// Decrypting is in EXEC dbo.usp_s_DecryptPacket @rawPacket, @outPacket = @decryptedPacket OUTPUT;
+// Decoding is in dbo.usp_i_MessageDecoder @rawPacketId
 
-import java.sql.Date;
+import java.io.BufferedOutputStream;
+import java.io.FileOutputStream;
+import java.io.ObjectOutput;
+import java.io.ObjectOutputStream;
+import java.io.OutputStream;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
-import org.apache.camel.Body;
 import org.apache.camel.Exchange;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,6 +23,13 @@ import org.slf4j.LoggerFactory;
 import bsm.dcl.config.dal.DeviceConfigService;
 import bsm.dcl.config.dal.entities.DataDefinition;
 import bsm.dcl.config.dal.entities.UnitDataDefinition;
+import bsm.dcl.messaging.Impact;
+import bsm.dcl.messaging.LocomotiveMonitoringUnit;
+import bsm.dcl.messaging.SolarTrackingUnit;
+import bsm.dcl.messaging.SpacialTracking;
+import bsm.dcl.messaging.SpeedRecording;
+import bsm.dcl.messaging.UnitMessage;
+import bsm.dcl.messaging.SensorRefrigiration;
 
 public class Decrypter {
 	
@@ -26,6 +39,22 @@ public class Decrypter {
 	private Map<String,String> decoderMap = new HashMap<String, String>();
 	private Map<String,DataDefinition> dataDefinitions;
 	private Map<String, UnitDataDefinition> unitDataDefinitions;
+	
+	private DataDefinition dataDefinition;
+	
+	// Decoded Data
+	private UnitMessage unitMsg;
+	private SensorRefrigiration sensorRf;
+	private LocomotiveMonitoringUnit messageLMU;
+	private SolarTrackingUnit messageSTU;
+	private Impact impact;
+	private SpacialTracking spacial;
+	private SpeedRecording speedRecording;
+
+	// Helper members
+	private SimpleDateFormat dateFormat;
+	boolean hasuStu;
+
 	
 	private static final Logger LOG = LoggerFactory.getLogger(Decrypter.class);
 
@@ -41,7 +70,8 @@ public class Decrypter {
 		// Set data into header for processing during message decode
 		exchange.setProperty("UNIT_ID",record.get("UNIT_ID"));
 		exchange.setProperty("RECEIVE_DTTM",record.get("RECEIVE_DTTM"));
-		exchange.setProperty("UNIT_ID",record.get("NETWORK"));
+		exchange.setProperty("NETWORK",record.get("NETWORK"));
+		exchange.setProperty("RAW_PACKET_ID",record.get("RAW_PACKET_ID"));
 
 		String encryptedMsg = (String)record.get("RAW_PACKET");
 		String decryptedMsg = decrypt(encryptedMsg);
@@ -49,39 +79,67 @@ public class Decrypter {
 		return decryptedMsg;
 	}
 	
-	public void decodeMsg(Exchange exchange) throws Exception {
+	public UnitMessage decodeMsg(Exchange exchange) throws Exception {
 	
+		// Initialize output message structures
+		unitMsg = new UnitMessage();
+		sensorRf = new SensorRefrigiration();
+		messageLMU = new LocomotiveMonitoringUnit();
+		messageSTU = new SolarTrackingUnit();
+		impact = new Impact();
+		dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
 		String decryptedPkt = exchange.getIn().getBody(String.class);
-		String unitId = (String)exchange.getProperty("UNIT_ID");
-		Date receiveDttm = (Date)exchange.getProperty("RECEIVE_DTTM");
+		unitMsg.unitId = (String)exchange.getProperty("UNIT_ID");
+		unitMsg.receiveDttm = exchange.getProperty("RECEIVE_DTTM").toString();
 		String network = (String)exchange.getProperty("NETWORK");
-		
-		dataDefinitions = deviceConfigService.findAll();
-		
-		
-		LOG.info("Number of definitions is: " + dataDefinitions.size());
+//		Long rowPacketId = (Long)exchange.getProperty("RAW_PACKET_ID");
+	
+		if(decryptedPkt == null || network == null || unitMsg.receiveDttm == null){
+			LOG.error("Error: data string metadata is missing");
+			Exception e = new Exception( "Network: " + network + ", Date Received:"
+			+ unitMsg.receiveDttm + ", Decrypted Packet is: " + decryptedPkt);
+			throw(e);
+		}	
 
+		dataDefinitions = deviceConfigService.readDataDefinitionsFromDb();
+		unitDataDefinitions = deviceConfigService.readUnitDataDefinitionsFromDb();
 		
-		decode(decryptedPkt, network, unitId, receiveDttm);
+		//--------------Serialize dataDefinition for unit test------------------------------------//
+		//OutputStream file = new FileOutputStream("C:/TEMP/dataDefinition.ser");
+	    //OutputStream buffer = new BufferedOutputStream(file);
+	    //ObjectOutput output = new ObjectOutputStream(buffer);
+	    //output.writeObject(dataDefinitions);
+	    //output.flush();
+	    //output.close();
 		
+		//OutputStream file = new FileOutputStream("C:/TEMP/unitDataDefinition.ser");
+	    //OutputStream buffer = new BufferedOutputStream(file);
+	    //ObjectOutput output = new ObjectOutputStream(buffer);
+	    //output.writeObject(unitDataDefinitions);
+	    //output.flush();
+	    //output.close();
+		//-----------------------------------------------------------------------------------------//
 
+		decode(decryptedPkt, network);
+	
+		unitMsg.sensorRf 	= sensorRf;
+		unitMsg.messageLMU 	= messageLMU;
+		unitMsg.messageSTU 	= messageSTU;
+			
+		return unitMsg;
+		
 	}
 	
-	private void decode(String decryptedPacket, String network, String unitId, Date receiveDttm) throws Exception {
+	
+	private void decode(String decryptedPacket, String network) throws Exception {
 		
 		String ddIdKey = "";
+		String value;
+		int dataDefOrder,ddId;
+		boolean hasLlap = false;	
+		
+		unitMsg.decodeDttm = dateFormat.format(new Date());
 
-		//DATA DEFINITIONS VARIABLES
-		String valueName = null,lookupTable,bitSet,valueAlias,valueUnit,valueFunction,valueType,value,xmlOpen,xmlClose,uddName = null,eePromRowId,eePromRowData,timezoneRule,datePart,saveDecryptedPacket,rawDataLetter;
-		int valueLength,dataDefOrder,ddId;
-		Date valueAsDate,UnitDate;
-		double linearA,linearB,linearC,linearD,linearE;
-		double linearResult;	 
-		long valueAsBigInt;	
-		boolean useLinearEquation = false;
-		boolean newMessage = false;
-		boolean hasuStu = false;
-		boolean hasLlap = false;			
 			
 		while( decryptedPacket.length() > 4 ){
 				
@@ -93,33 +151,25 @@ public class Decrypter {
 				
 				if(ddId == 277 || ddId == 293) 
 				{
-					//-------------------------------------------------------------------------------------------------------
-					//----------------------------------------IMPACT RECORDING-----------------------------------------------
-					//-------------------------------------------------------------------------------------------------------
-				
+					impactRecording(decryptedPacket);
 				}
 				else if(ddId == 279)
 				{
-					//-------------------------------------------------------------------------------------------------------
-					//----------------------------------------SPEED RECORDING------------------------------------------------
-					//-------------------------------------------------------------------------------------------------------
+					speedRecording(decryptedPacket);	
 				}
 				
 				else if(ddId == 294)
 				{
-					//-------------------------------------------------------------------------------------------------------
-					//----------------------------------------BREADCRUMB RECORDING------------------------------------------------
-					//-------------------------------------------------------------------------------------------------------
+					breadcrumbRecording(decryptedPacket);
 				}
 				else if ((ddId == 296 || ddId == 298) && !hasuStu )
 				{
 					hasuStu = true;
-			
-					
+							
 				}
 				else if((ddId == 304 || ddId == 303) && hasLlap == false)
 				{
-					//uStuDttm = s1_txDttm;
+					//messageSTU.uStuDttm = s1_txDttm;
 					//uStuUnitId = s1_serialNo;
 					hasLlap = true;
 					
@@ -127,137 +177,467 @@ public class Decrypter {
 				
 				dataDefOrder = 0;
 				ddIdKey = Integer.toString(ddId) + "-" + Integer.toString(dataDefOrder);
-				DataDefinition dataDefinition = dataDefinitions.get(ddIdKey);
+				dataDefinition = dataDefinitions.get(ddIdKey);
 				
 				if(dataDefinition == null)
 				{
-					LOG.error("Error: DataDefinition object is NULL ");
-					Exception e = new Exception("DataDefinition lookup is not found in Map");
-					throw(e);
-				}
+					continue;
+				}				
 				
-				valueName = dataDefinition.getName();
-				valueAlias = dataDefinition.getAlias();
-				valueUnit = dataDefinition.getUnit();
-				valueType = dataDefinition.getType();
-				valueFunction = dataDefinition.getValueFunction();
-				valueLength = dataDefinition.getLength();
-				linearA = dataDefinition.getLinearA();
-				linearB = dataDefinition.getLinearB();
-				linearC = dataDefinition.getLinearC();
-				linearD = dataDefinition.getLinearD();
-				linearE = dataDefinition.getLinearE();
-				rawDataLetter = dataDefinition.getRawDataLetter();
-				xmlOpen = dataDefinition.getXmlOpenTag();
-				xmlClose = dataDefinition.getXmlCloseTag();
-				useLinearEquation = false;			
-				LOG.info("DDID : " + ddId);
-				LOG.info("Key Name is : " + ddIdKey);
-				LOG.info("Value Name is : " + valueName);
-				
-				
-				while(valueName != null){
+				while(dataDefinition != null && dataDefinition.getName() != null){
 					
-					if(unitId == null){
-						LOG.error("Error: unitId is null");
-						Exception e = new Exception("unitId is null");
-						throw(e);
-					}
-					ddIdKey = Integer.toString(ddId) + "-" + unitId + "-" + valueName;
-					UnitDataDefinition unitDataDefinition = unitDataDefinitions.get(ddIdKey);
-					
-					if(unitDataDefinition != null)
-					{
-						uddName = unitDataDefinition.getName();
-						valueAlias = unitDataDefinition.getAlias();
-						valueUnit = unitDataDefinition.getUnit();
-						valueType = unitDataDefinition.getType();
-						valueFunction = unitDataDefinition.getFunction();
-						linearA = unitDataDefinition.getLinearA();
-						linearB = unitDataDefinition.getLinearB();
-						linearC = unitDataDefinition.getLinearC();
-						linearD = unitDataDefinition.getLinearD();
-						linearE = unitDataDefinition.getLinearE();
-						rawDataLetter = unitDataDefinition.getRawDataLetter();
-						useLinearEquation = false;																		
+					if( unitMsg.unitId != null ){
+						changeDataDefinition(ddId);					
+					}		
 						
-						LOG.debug("uddName is : " + uddName);
-						LOG.debug("Key Name is : " + ddIdKey);
-						LOG.debug("Value Name is : " + valueName);							
+					value = getValueFromFunction(decryptedPacket);				
+				
+					if(!processlinearEquations(value)){
+						
+						processValueFunction(value);
+						processStandardDefinitions(value);					
 					}
-					
-					if(valueFunction.contains("~"))
-					{
-						int startInd = valueFunction.indexOf("~");		
-						lookupTable = valueFunction.substring(startInd+1);
-						valueFunction = valueFunction.substring(0,startInd-1);		
-					}
-					
-					if(rawDataLetter.equals("A") || rawDataLetter.equals("B") || rawDataLetter.equals("C") || rawDataLetter.equals("D") || rawDataLetter.equals("E")){
-						useLinearEquation = true;
-						if( linearA == 0 || linearB == 0  || linearC == 0  || linearD == 0  || linearE == 0 )
-							useLinearEquation = false;			
-					}
-					
-					value = decryptedPacket.substring(0, valueLength);
 
-					if(value.length() > 2 && !valueName.contains("EEPROM"))
-						value = reverseHexString(value);
-						
-					//-------------------------------------------------------------------------------------------------------
-					//----------------------------------------LINEAR EQUATIONS-----------------------------------------------
-					//-------------------------------------------------------------------------------------------------------
-					
-					String hexValue = value;
-
-					if(useLinearEquation){
-				
-						if(rawDataLetter.equals("A"))
-							linearA = Integer.decode("0x"+value);
-						else if(rawDataLetter.equals("B"))
-							linearA = Integer.decode("0x"+value);
-						else if(rawDataLetter.equals("C"))
-							linearA = Integer.decode("0x"+value);
-						else if(rawDataLetter.equals("D"))
-							linearA = Integer.decode("0x"+value);
-						else if(rawDataLetter.equals("E"))
-							linearA = Integer.decode("0x"+value);	
-						
-						
-						if(linearE != 0){
-							linearResult = linearA + ((linearB * (linearC + linearD)) / linearE);
-							Double tmpLinResDbl = new Double(linearResult);
-							value = Double.toString(linearResult);
-							if(valueType.equals("int"))
-								linearResult = tmpLinResDbl.intValue();
-							else if(valueType.equals("bigint"))
-								linearResult = tmpLinResDbl.longValue();
-							else if(valueType.equals("bigint"))
-								linearResult = tmpLinResDbl.floatValue();
-							
+					if(decryptedPacket.length() > 0){
+						try{
+							decryptedPacket = decryptedPacket.substring(dataDefinition.getLength());
+						}
+						catch(IndexOutOfBoundsException  e){
+							decryptedPacket = "";
+							dataDefinition = null;
+							LOG.info("Exception: " + e.toString());
+							continue;
 						}
 					}
-					//-------------------------------------------------------------------------------------------------------
-					//----------------------------------------END LINEAR EQUATIONS-----------------------------------------------
-					//-------------------------------------------------------------------------------------------------------
-
-					else{
-						
-					}
-
+					
+					//if(divisionId == null){
+					//add handler
+					//}
+					
+				
+					dataDefOrder++;
+					ddIdKey = Integer.toString(ddId) + "-" + Integer.toString(dataDefOrder);
+					dataDefinition = dataDefinitions.get(ddIdKey);	
 				
 				}
+		}				
+	}
+			
+
+	private void breadcrumbRecording(String decryptedPacket) {
+		 throw new  UnsupportedOperationException("Breadcrumb Not implemented yet");
 		
-				
+	}
+
+	private void impactRecording(String decryptedPacket) {
+		 throw new  UnsupportedOperationException("impactRecording Not implemented yet");
+		
+	}
+
+	private void speedRecording(String decryptedPacket) {
+		
+		String speedPacket = decryptedPacket;
+		int lenSpeed = Integer.decode ("0x" + speedPacket.substring(0, 1));
+		
+		String saveSpeedPacket = speedPacket;
+		speedPacket = speedPacket.substring(2, lenSpeed * 2 - 1);
+		int speedOrder = 0;
+		
+		speedRecording.records = new HashMap<String,String>();
+
+		while( speedPacket.length() > 0 ){							
+			int speedRecord = Integer.decode ("0x" + speedPacket.substring(0, 1));
+			speedRecording.records.put(Integer.toString(speedOrder), Integer.toString(speedRecord));
+			speedOrder = speedOrder + 1;
+			speedPacket = speedPacket.substring( 2, lenSpeed*2 - 1);				
+		}
+		decryptedPacket = decryptedPacket.substring( decryptedPacket.length() - saveSpeedPacket.length());			
+	}
+
+	private String getValueFromFunction(String decryptedPacket) {
+		
+		String valueFunction = dataDefinition.getFunction();
+		int valueLength = dataDefinition.getLength();
+		String valueName = dataDefinition.getName();;
+		String value = "";
+	
+		if(valueFunction != null && valueFunction.contains("~"))
+		{
+			int startInd = valueFunction.indexOf("~");		
+//			lookupTable = valueFunction.substring(startInd+1);
+			dataDefinition.setFunction(valueFunction.substring(0,startInd-1));		
+		}
+		
+		try{
+			value = decryptedPacket.substring(0, valueLength);
+		}
+		catch(IndexOutOfBoundsException  e){
+			value = decryptedPacket;
+			LOG.info("Exception: " + e.toString());
+		}
+
+		if(value.length() > 2 && !valueName.contains("EEPROM"))
+			value = reverseHexString(value);			
+	
+		return value;
+	}
+
+	private void changeDataDefinition(int ddId) {
+		if( !unitMsg.unitId.isEmpty() ){
+			String ddIdKey = Integer.toString(ddId) + "-" + unitMsg.unitId + "-" + dataDefinition.getName();
+			UnitDataDefinition unitDataDefinition = unitDataDefinitions.get(ddIdKey);
+			
+			if(unitDataDefinition != null)
+			{
+				dataDefinition.redefineData(unitDataDefinition);								
+			}
+		}
+		
+	}
+
+	private void processStandardDefinitions(String value) {
+		 if (dataDefinition.getFunction() != null && !dataDefinition.getFunction().isEmpty())
+			 return;
+		 
+		 String valueName = dataDefinition.getName();
+		 
+		 if ( valueName == null || valueName.isEmpty())
+			 return;
+		 
+		 if ( decodeSpeed(valueName, value) )
+			 return;
+		 else if( decodeMaxSpeed(valueName, value) )
+			 return;
+		 else if( decodeGpsSatteliteInView(valueName, value) )
+			 return;
+		 else if( decodeMessageType(valueName, value) )
+			 return;
+		 
+		
+	}
+
+	private boolean decodeMessageType(String valueName, String value) {
+		// TODO Auto-generated method stub
+		return false;
+	}
+
+	private boolean decodeGpsSatteliteInView(String valueName, String value) {
+		// TODO Auto-generated method stub
+		return false;
+	}
+
+	private boolean decodeMaxSpeed(String valueName, String value) {
+		// TODO Auto-generated method stub
+		return false;
+	}
+
+	private boolean decodeSpeed(String valueName, String value) {
+		// TODO Auto-generated method stub
+		return false;
+	}
+
+	private boolean processValueFunction(String value) {
+		if( dataDefinition.getFunction() == null)
+			return false;
+		
+		if( processUnitIdAndSerialNumber(value) )
+			return true;
+		else if( processUnitDateTime(value) )
+			return true;
+		else if( processMsgType(value) )
+			return true;
+		else if( processLatitude(value) )
+			return true;
+		else if( processLongitude(value) )
+			return true;
+		else if( processCourse(value) )
+			return true;
+		else if( processG(value) )	
+				return true;
+		
+		return false;		
+	}
+
+	private boolean processG(String value) {
+		
+		String valueName = dataDefinition.getName();
+		if( !dataDefinition.getFunction().equals("udf_g") || valueName == null )
+			return false;
+		
+		Float xyzG = Long.decode("0x"+value).floatValue()/10;
+
+		if( valueName.equals("X_G_10HZ"))
+			impact.x10Hz = xyzG.toString();
+		else if(valueName.equals("Y_G_10HZ"))
+			impact.y10Hz = xyzG.toString();
+		else if(valueName.equals("Z_G_10HZ"))
+			impact.z10Hz = xyzG.toString();
+		else if(valueName.equals("X_G_100HZ"))
+			impact.x100Hz = xyzG.toString();
+		else if(valueName.equals("Y_G_100HZ"))
+			impact.y100Hz = xyzG.toString();
+		else if(valueName.equals("Z_G_100HZ"))
+			impact.z100Hz = xyzG.toString();
+		
+		return true;
+	}
+
+	private boolean processCourse(String value) {
+		if(!dataDefinition.getFunction().equals("udf_course") && !dataDefinition.getName().equals("COURSE"))
+			return false;
+		spacial.course = Integer.toString(Integer.decode("0x" + value) * 2);
+		
+		return true;
+	}
+
+	private boolean processMsgType(String value) {
+		
+		String valueFunction = dataDefinition.getFunction();
+		if( valueFunction.equals("udf_MsgType") && dataDefinition.getName().equals("MESSAGE_TYPE") )
+		{
+				unitMsg.uStuMsgTypeId = Integer.decode("0x"+value);
+				return true;
+		}
+		return false;
+		
+	}
+
+	private boolean processLongitude(String value) {
+		
+		if(	!dataDefinition.getFunction().equals("udf_longitude") && !dataDefinition.getName().equals("LONGITUDE")){
+			return false;
+		}
+		
+		Double dLongitude = Long.decode("0x" + value)/ 600000.000000 - 180;
+
+		if(dLongitude >= 180d)
+			spacial.longitude = "-180.000002";
+		else{
+			String strLongitude = dLongitude.toString();
+			int len = strLongitude.length();
+			int truncatePt = strLongitude.indexOf(".") + 7;
+			if(truncatePt < len + 1)
+				spacial.longitude = strLongitude.substring(0,truncatePt);
+			else
+				spacial.longitude = strLongitude;				
 		}
 			
-			
-	}
+		return true;		
 		
-	public void decodeTest(String decryptedPacket,String network, String unitId, Date receiveDttm) {
+	}
+
+	private boolean processLatitude(String value) {
+		
+		if(	!dataDefinition.getFunction().equals("udf_latitude") && !dataDefinition.getName().equals("LATITUDE")){
+			return false;
+		}
+		
+		Double dLatitude = Long.decode("0x" + value)/600000.000000 - 90;
+
+		if(dLatitude >= 90d)
+			spacial.latitude = "-90.000002";
+		else{
+			String strLatitude = dLatitude.toString();
+			int len = strLatitude.length();
+			int truncatePt = strLatitude.indexOf(".") + 7;
+			if(truncatePt < len + 1)
+				spacial.latitude = strLatitude.substring(0,truncatePt);
+			else
+				spacial.latitude = strLatitude;
+		}
+			
+		return true;		
+	}
+
+	private boolean processUnitDateTime(String value) {
+		
+		if( !dataDefinition.getFunction().equals("udf_unitDateTime"))
+			return false;
+		
+
+		long valueAsBigInt = Long.decode("0x" + value) * 1000;
+
+		String basedate = "2000-01-01 00:00:00.000";
+		Date dUnitDate;
+		
+		try {
+			dUnitDate = dateFormat.parse(basedate);
+		} catch (ParseException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+			return true;
+		}
+	
+		String txDtmm = dateFormat.format(new Date(valueAsBigInt + dUnitDate.getTime()));
+
+		if(dataDefinition.getName().equals("UNIT_DTTM") ){					 
+			unitMsg.unitDttm = txDtmm;
+		}
+		else if( dataDefinition.getName().equals("TX_DTTM") ){
+	
+			if (sensorRf.s1_txDttm == null)
+				sensorRf.s1_txDttm = txDtmm;
+			else if(sensorRf.s2_txDttm == null)
+				sensorRf.s2_txDttm= txDtmm;
+			else if(sensorRf.s3_txDttm == null)
+				sensorRf.s3_txDttm = txDtmm;
+			else if(sensorRf.s4_txDttm == null)
+				sensorRf.s4_txDttm = txDtmm;
+			else if(sensorRf.s5_txDttm == null)
+				sensorRf.s5_txDttm = txDtmm;
+			else if(sensorRf.s6_txDttm == null)
+				sensorRf.s6_txDttm = txDtmm;
+			else if(sensorRf.s7_txDttm == null)
+				sensorRf.s7_txDttm = txDtmm;
+			else if(sensorRf.s8_txDttm == null)
+				sensorRf.s8_txDttm = txDtmm;
+			else if(sensorRf.s9_txDttm == null)
+				sensorRf.s9_txDttm = txDtmm;
+			else if(sensorRf.s10_txDttm == null)
+				sensorRf.s10_txDttm = txDtmm;
+
+			if(txDtmm.contains("2000-01-01")){
+				sensorRf.excludeRF = true;
+			}
+			else{
+				sensorRf.excludeRF = false;
+			}
+		}
+		else if( dataDefinition.getName().equals("GPS_DTTM")){
+			spacial.gpsDttm = txDtmm;
+		}
+		
+		return true;		
+	}
+
+	private boolean processUnitIdAndSerialNumber(String value) {
+			
+		String valueFunction = dataDefinition.getFunction();
+		String valueName = dataDefinition.getName();
+		
+		if( valueFunction.equals("udf_unitId") ){
+
+			if(valueName.equals("UNIT_ID")){
+				unitMsg.unitId = value;
+			}
+			else if(valueName.equals("SERIAL_NUMBER") && !sensorRf.excludeRF){
+				unitMsg.tempUnitId = unitMsg.unitId;
+			}
+			if( sensorRf.sensor == 1){	
+				sensorRf.s1_serialNo = value;
+				unitMsg.unitId = sensorRf.s1_serialNo;
+				return true;
+			}
+			else if( sensorRf.sensor == 2){					
+				sensorRf.s2_serialNo = value;
+				unitMsg.unitId = sensorRf.s2_serialNo;
+				return true;
+			}
+			else if( sensorRf.sensor == 3){		
+				sensorRf.s3_serialNo = value;
+				unitMsg.unitId = sensorRf.s3_serialNo;
+				return true;
+			}
+			else if( sensorRf.sensor == 4){			
+				sensorRf.s4_serialNo = value;
+				unitMsg.unitId = sensorRf.s4_serialNo;
+				return true;
+			}
+			else if( sensorRf.sensor == 5){	
+				sensorRf.s5_serialNo = value;
+				unitMsg.unitId = sensorRf.s5_serialNo;
+				return true;
+			}
+			else if( sensorRf.sensor == 6){			
+				sensorRf.s6_serialNo = value;
+				unitMsg.unitId = sensorRf.s6_serialNo;
+				return true;
+			}
+			else if( sensorRf.sensor == 7){		
+				sensorRf.s7_serialNo = value;
+				unitMsg.unitId = sensorRf.s7_serialNo;
+				return true;
+			}
+			else if( sensorRf.sensor == 8){		
+				sensorRf.s8_serialNo = value;
+				unitMsg.unitId = sensorRf.s8_serialNo;
+				return true;
+			}
+			else if( sensorRf.sensor == 9){			
+				sensorRf.s9_serialNo = value;
+				unitMsg.unitId = sensorRf.s9_serialNo;
+				return true;
+			}
+			else if( sensorRf.sensor == 10){					
+				sensorRf.s10_serialNo = value;
+				unitMsg.unitId = sensorRf.s10_serialNo;
+				return true;
+			}
+		}			
+		return false;
+	}
+
+	private boolean processlinearEquations(String value) {
+		
+		String valueAlias,valueUnit,valueFunction,valueType,xmlOpen,xmlClose,uddName = null,eePromRowId,rawDataLetter;
+		double linearA,linearB,linearC,linearD,linearE;
+		double linearResult;	 
+
+		rawDataLetter = dataDefinition.getRawDataLetter();	
+		
+		if(rawDataLetter == null)
+			return false;
+		
+		if( !rawDataLetter.equals("A") || !rawDataLetter.equals("B") || !rawDataLetter.equals("C") || 
+				!rawDataLetter.equals("D") || !rawDataLetter.equals("E"))
+			return false;
+			
+		linearA = dataDefinition.getLinearA();
+		linearB = dataDefinition.getLinearB();
+		linearC = dataDefinition.getLinearC();
+		linearD = dataDefinition.getLinearD();
+		linearE = dataDefinition.getLinearE();
+
+		if( linearA == 0 || linearB == 0  || linearC == 0  || linearD == 0  || linearE == 0 )
+			return false;			
+				
+		uddName = dataDefinition.getUddName();
+		valueAlias = dataDefinition.getAlias();
+		valueUnit = dataDefinition.getUnit();
+		valueType = dataDefinition.getType();
+		valueFunction = dataDefinition.getFunction();
+		
+		if(rawDataLetter.equals("A"))
+			linearA = Integer.decode("0x"+value);
+		else if(rawDataLetter.equals("B"))
+			linearA = Integer.decode("0x"+value);
+		else if(rawDataLetter.equals("C"))
+			linearA = Integer.decode("0x"+value);
+		else if(rawDataLetter.equals("D"))
+			linearA = Integer.decode("0x"+value);
+		else if(rawDataLetter.equals("E"))
+			linearA = Integer.decode("0x"+value);	
+				
+		if(linearE != 0){
+			linearResult = linearA + ((linearB * (linearC + linearD)) / linearE);
+			Double tmpLinResDbl = new Double(linearResult);
+			value = Double.toString(linearResult);
+			if(valueType.equals("int"))
+				linearResult = tmpLinResDbl.intValue();
+			else if(valueType.equals("bigint"))
+				linearResult = tmpLinResDbl.longValue();
+			else if(valueType.equals("bigint"))
+				linearResult = tmpLinResDbl.floatValue();
+			
+		}	
+		return true;
+		
+	}
+
+	public void decodeTest(String decryptedPacket,String network) {
 			
 			try {
-				decode(decryptedPacket, network,  unitId,  receiveDttm);
+				decode(decryptedPacket, network);
 			} catch (Exception e) {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
@@ -266,10 +646,8 @@ public class Decrypter {
 		
 
 
-		private static String reverseHexString (String hex_string)
-		{
-
-
+	private static String reverseHexString (String hex_string)
+	{
 			String reverse_hex_string = "";
 			int counter = hex_string.length() - 1;
 
@@ -280,9 +658,9 @@ public class Decrypter {
 
 			return reverse_hex_string;
 
-		}
+	}
 	
-	 public DeviceConfigService getDeviceConfigService() {
+	public DeviceConfigService getDeviceConfigService() {
 		    return deviceConfigService;
 	}
 
@@ -453,13 +831,55 @@ private int hexStringToInt(String input) {
 
 
 
-	public String decryptTest(String encryptedMsg1) {
+	public String decryptTest(String encryptedMsg) {
 		initDecoderMap();
-		return decrypt(encryptedMsg1);
+		return decrypt(encryptedMsg);
 	}
 
+	public void setDataDefinitions(Map<String,DataDefinition> dataDefinitions){
+		
+		this.dataDefinitions = dataDefinitions;
+	}
+	public void setUnitMsg(UnitMessage unitMsg){
+		
+		this.unitMsg = unitMsg;
+	}
 
+	public void setUnitDataDefinitions(Map<String, UnitDataDefinition> unitDataDefinitions) {
+		
+		this.unitDataDefinitions = unitDataDefinitions;
+		
+	}
 
+	public void setSensorRf(SensorRefrigiration sensorRf) {
+		this.sensorRf = sensorRf;
+		
+	}
+
+	public UnitMessage getUnitMsg() {
+		// TODO Auto-generated method stub
+		return this.unitMsg;
+	}
+
+	public LocomotiveMonitoringUnit getMessageLMU() {
+		// TODO Auto-generated method stub
+		return this.messageLMU;
+	}
+	
+	public void setMessageLMU(LocomotiveMonitoringUnit messageLMU) {
+		this.messageLMU = messageLMU;
+		
+	}
+
+	public void getMessageSTU(SolarTrackingUnit messageSTU) {
+		this.messageSTU = messageSTU;
+		
+	}
+
+	public void setDateFormat(SimpleDateFormat dateFormat) {
+		this.dateFormat = dateFormat;
+		
+	}
 
 	
 }
