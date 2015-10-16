@@ -2,11 +2,11 @@
 <project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns="http://maven.apache.org/POM/4.0.0"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <modelVersion>4.0.0</modelVersion>
-  <groupId>bsm.prototype.dcl</groupId>
-  <artifactId>latlon.railService</artifactId>
+  <groupId>bsm.dcl</groupId>
+  <artifactId>latlon.decoder</artifactId>
   <version>1.0</version>
   <packaging>bundle</packaging>
-  <name>latlon.railService</name>
+  <name>latlon.decoder</name>
   <distributionManagement>
     <repository>
       <id>BSM-Wireless</id>
@@ -174,22 +174,6 @@
     </pluginManagement>
     <plugins>
       <plugin>
-        <groupId>org.codehaus.mojo</groupId>
-        <artifactId>jaxb2-maven-plugin</artifactId>
-        <version>1.6</version>
-        <executions>
-          <execution>
-            <goals>
-              <goal>xjc</goal>
-            </goals>
-          </execution>
-        </executions>
-        <configuration>
-          <schemaDirectory>src/main/resources/schemas</schemaDirectory>
-          <verbose>false</verbose>
-        </configuration>
-      </plugin>
-      <plugin>
         <artifactId>maven-compiler-plugin</artifactId>
         <version>2.5.1</version>
         <configuration>
@@ -220,8 +204,8 @@
         </executions>
         <configuration>
           <instructions>
-            <Bundle-SymbolicName>latlon.railService</Bundle-SymbolicName>
-            <Private-Package>bsm.prototype.dcl.latlon.railService.*</Private-Package>
+            <Bundle-SymbolicName>latlon.decoder</Bundle-SymbolicName>
+            <Private-Package>bsm.dcl.latlon.decoder.*</Private-Package>
             <Import-Package>javax.sql,com.microsoft.sqlserver.jdbc,*</Import-Package>
 			<DynamicImport-Package>*</DynamicImport-Package>
           </instructions>

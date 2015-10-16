@@ -14,6 +14,8 @@ import java.util.Map;
 
 import bsm.dcl.config.dal.entities.DataDefinition;
 import bsm.dcl.config.dal.entities.UnitDataDefinition;
+import bsm.dcl.latlon.Decoder;
+import bsm.dcl.messaging.MessageControl;
 import bsm.dcl.messaging.UnitMessage;
 import bsm.dcl.messaging.SensorRefrigiration;
 
@@ -44,7 +46,10 @@ public class testJavaProcessors {
 		
 		String decryptedPacket ="280100170D0000606358052E01D659EE1B2901C902F501FD01A302030000003001B585403E0000A12D010059EE1B0000CB34A3043EA7AE020C16";
 		
-		decode(decryptedPacket);			
+		String value = "0D";
+		String course = Integer.toString(Integer.decode("0x" + value) * 2);
+		
+		//decode(decryptedPacket);			
 		
 
 	}
@@ -53,7 +58,7 @@ public class testJavaProcessors {
 		
 
 
-		Decrypter decrypter = new Decrypter();	
+		Decoder decrypter = new Decoder();	
 		Map<String,DataDefinition> dataDefinitions = null;
 		Map<String,UnitDataDefinition> unitDataDefinitions = null;
 		try{		
@@ -80,11 +85,12 @@ public class testJavaProcessors {
 		try{	
 			decrypter.setDataDefinitions(dataDefinitions);
 			decrypter.setUnitDataDefinitions(unitDataDefinitions);
-			UnitMessage unitMsg = new UnitMessage();
+			
 			SensorRefrigiration sensorRf = new SensorRefrigiration();
 			Date receiveDttm = new Date();
-			unitMsg.receiveDttm = receiveDttm.toString();
-			decrypter.setUnitMsg(unitMsg);
+			
+			decrypter.messageControl = new MessageControl();
+			decrypter.messageControl.receiveDttm = receiveDttm.toString();
 			decrypter.setSensorRf(sensorRf);
 
 			String network ="K";

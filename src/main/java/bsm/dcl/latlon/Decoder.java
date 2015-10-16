@@ -1,4 +1,4 @@
-package bsm.prototype.dcl.latlon;
+package bsm.dcl.latlon;
 
 // Main parsing is in PROCEDURE [dbo].[usp_i_MessageDecoder]
 // Raw data is in dbo.MESSAGE_DECODER_QUEUE
@@ -23,16 +23,23 @@ import org.slf4j.LoggerFactory;
 import bsm.dcl.config.dal.DeviceConfigService;
 import bsm.dcl.config.dal.entities.DataDefinition;
 import bsm.dcl.config.dal.entities.UnitDataDefinition;
+import bsm.dcl.messaging.BearingTemperature;
+import bsm.dcl.messaging.Bechtel;
+import bsm.dcl.messaging.Common;
 import bsm.dcl.messaging.Impact;
 import bsm.dcl.messaging.LocomotiveMonitoringUnit;
+import bsm.dcl.messaging.MessageControl;
 import bsm.dcl.messaging.SolarTrackingUnit;
 import bsm.dcl.messaging.SpacialTracking;
 import bsm.dcl.messaging.SpeedRecording;
+import bsm.dcl.messaging.SummaryReport;
+import bsm.dcl.messaging.UnitHealth;
 import bsm.dcl.messaging.UnitMessage;
 import bsm.dcl.messaging.SensorRefrigiration;
 
-public class Decrypter {
+public class Decoder {
 	
+	// Reference to external mapping service
 	private DeviceConfigService deviceConfigService;
 	
 	// Various mapping objects for data decoding
@@ -42,62 +49,60 @@ public class Decrypter {
 	
 	private DataDefinition dataDefinition;
 	
-	// Decoded Data
-	private UnitMessage unitMsg;
-	private SensorRefrigiration sensorRf;
-	private LocomotiveMonitoringUnit messageLMU;
-	private SolarTrackingUnit messageSTU;
-	private Impact impact;
-	private SpacialTracking spacial;
-	private SpeedRecording speedRecording;
+	// Parts of Decoded Data Message
+	public MessageControl 				messageControl;	
+	public SensorRefrigiration 			sensorRf;
+	public LocomotiveMonitoringUnit 	messageLMU;
+	public SolarTrackingUnit 			messageSTU;
+	public Impact 						impact;
+	public SpacialTracking 				spacial;
+	public SpeedRecording 				speedRecording;	
+	public Common 						common;
+	public SpacialTracking 				spacialTracking;
+	public SensorRefrigiration 			sensorRefrigiration;
+	public UnitHealth 					unitHealth;
+	public Bechtel 						bechtel;
+	public BearingTemperature 			bearingTemperature;
+	public SummaryReport 				summaryReport;
 
 	// Helper members
 	private SimpleDateFormat dateFormat;
 	boolean hasuStu;
+	private Integer uStuMsgTypeId;
+
+	private String tempUnitId;
+	
 
 	
-	private static final Logger LOG = LoggerFactory.getLogger(Decrypter.class);
+	private static final Logger LOG = LoggerFactory.getLogger(Decoder.class);
 
-	@SuppressWarnings("unchecked")
-	public String decryptMsg(Exchange exchange) throws Exception {
-	
-		// Initialize Decoder Map
-		initDecoderMap();	// This needs to be moved to some sort of cashed object initialized on the start of this interface the 
-		// Initialize Decoder Map
-		
-		Map<String, Object> record = exchange.getIn().getBody(Map.class);
-		
-		// Set data into header for processing during message decode
-		exchange.setProperty("UNIT_ID",record.get("UNIT_ID"));
-		exchange.setProperty("RECEIVE_DTTM",record.get("RECEIVE_DTTM"));
-		exchange.setProperty("NETWORK",record.get("NETWORK"));
-		exchange.setProperty("RAW_PACKET_ID",record.get("RAW_PACKET_ID"));
-
-		String encryptedMsg = (String)record.get("RAW_PACKET");
-		String decryptedMsg = decrypt(encryptedMsg);
-		
-		return decryptedMsg;
-	}
 	
 	public UnitMessage decodeMsg(Exchange exchange) throws Exception {
-	
+			
 		// Initialize output message structures
-		unitMsg = new UnitMessage();
+		messageControl = new MessageControl();
 		sensorRf = new SensorRefrigiration();
 		messageLMU = new LocomotiveMonitoringUnit();
 		messageSTU = new SolarTrackingUnit();
 		impact = new Impact();
-		dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
-		String decryptedPkt = exchange.getIn().getBody(String.class);
-		unitMsg.unitId = (String)exchange.getProperty("UNIT_ID");
-		unitMsg.receiveDttm = exchange.getProperty("RECEIVE_DTTM").toString();
-		String network = (String)exchange.getProperty("NETWORK");
-//		Long rowPacketId = (Long)exchange.getProperty("RAW_PACKET_ID");
+		spacial = new SpacialTracking();
+		dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");	
+		common = new Common();
+		
+		// Get Message Data
+		@SuppressWarnings("unchecked")
+		Map<String, Object> record = exchange.getIn().getBody(Map.class);
+		String decryptedPkt = 			(String)record.get("DECRYPTED_PACKET");
+		String network = 				(String)record.get("NETWORK");
+		Long rowPacketId = 				(Long)	record.get("RAW_PACKET_ID");	
+		messageControl.unitId = 		(String)record.get("UNIT_ID");
+		messageControl.receiveDttm = 	(String)record.get("RECEIVE_DTTM");
+		messageControl.rowPacketId = rowPacketId.toString();
 	
-		if(decryptedPkt == null || network == null || unitMsg.receiveDttm == null){
+		if(decryptedPkt == null || network == null || messageControl.receiveDttm == null){
 			LOG.error("Error: data string metadata is missing");
 			Exception e = new Exception( "Network: " + network + ", Date Received:"
-			+ unitMsg.receiveDttm + ", Decrypted Packet is: " + decryptedPkt);
+			+ messageControl.receiveDttm + ", Decrypted Packet is: " + decryptedPkt);
 			throw(e);
 		}	
 
@@ -119,12 +124,17 @@ public class Decrypter {
 	    //output.flush();
 	    //output.close();
 		//-----------------------------------------------------------------------------------------//
-
+		LOG.info("Got DataDefinitions Entering decoding");
 		decode(decryptedPkt, network);
-	
-		unitMsg.sensorRf 	= sensorRf;
-		unitMsg.messageLMU 	= messageLMU;
-		unitMsg.messageSTU 	= messageSTU;
+		LOG.info("Done decoding");
+		UnitMessage unitMsg = new UnitMessage();
+		unitMsg.messageControl			= messageControl;
+		unitMsg.common					= common;
+		unitMsg.sensorRefrigiration 	= sensorRf;
+		unitMsg.messageLMU 				= messageLMU;
+		unitMsg.messageSTU 				= messageSTU;
+		unitMsg.spacialTracking			= spacial;
+		unitMsg.impact					= impact;
 			
 		return unitMsg;
 		
@@ -138,7 +148,7 @@ public class Decrypter {
 		int dataDefOrder,ddId;
 		boolean hasLlap = false;	
 		
-		unitMsg.decodeDttm = dateFormat.format(new Date());
+		messageControl.decodeDttm = dateFormat.format(new Date());
 
 			
 		while( decryptedPacket.length() > 4 ){
@@ -186,7 +196,7 @@ public class Decrypter {
 				
 				while(dataDefinition != null && dataDefinition.getName() != null){
 					
-					if( unitMsg.unitId != null ){
+					if( messageControl.unitId != null ){
 						changeDataDefinition(ddId);					
 					}		
 						
@@ -225,13 +235,16 @@ public class Decrypter {
 			
 
 	private void breadcrumbRecording(String decryptedPacket) {
-		 throw new  UnsupportedOperationException("Breadcrumb Not implemented yet");
+		 //throw new  UnsupportedOperationException("Breadcrumb Not implemented yet");
+		decryptedPacket = "";
+		return;
 		
 	}
 
 	private void impactRecording(String decryptedPacket) {
-		 throw new  UnsupportedOperationException("impactRecording Not implemented yet");
-		
+		 //throw new  UnsupportedOperationException("impactRecording Not implemented yet");
+		decryptedPacket = "";
+		return;
 	}
 
 	private void speedRecording(String decryptedPacket) {
@@ -283,8 +296,8 @@ public class Decrypter {
 	}
 
 	private void changeDataDefinition(int ddId) {
-		if( !unitMsg.unitId.isEmpty() ){
-			String ddIdKey = Integer.toString(ddId) + "-" + unitMsg.unitId + "-" + dataDefinition.getName();
+		if( !messageControl.unitId.isEmpty() ){
+			String ddIdKey = Integer.toString(ddId) + "-" + messageControl.unitId + "-" + dataDefinition.getName();
 			UnitDataDefinition unitDataDefinition = unitDataDefinitions.get(ddIdKey);
 			
 			if(unitDataDefinition != null)
@@ -395,7 +408,7 @@ public class Decrypter {
 		String valueFunction = dataDefinition.getFunction();
 		if( valueFunction.equals("udf_MsgType") && dataDefinition.getName().equals("MESSAGE_TYPE") )
 		{
-				unitMsg.uStuMsgTypeId = Integer.decode("0x"+value);
+			uStuMsgTypeId = Integer.decode("0x"+value);
 				return true;
 		}
 		return false;
@@ -427,6 +440,8 @@ public class Decrypter {
 	}
 
 	private boolean processLatitude(String value) {
+		
+		
 		
 		if(	!dataDefinition.getFunction().equals("udf_latitude") && !dataDefinition.getName().equals("LATITUDE")){
 			return false;
@@ -471,7 +486,7 @@ public class Decrypter {
 		String txDtmm = dateFormat.format(new Date(valueAsBigInt + dUnitDate.getTime()));
 
 		if(dataDefinition.getName().equals("UNIT_DTTM") ){					 
-			unitMsg.unitDttm = txDtmm;
+			messageControl.unitDttm = txDtmm;
 		}
 		else if( dataDefinition.getName().equals("TX_DTTM") ){
 	
@@ -518,59 +533,59 @@ public class Decrypter {
 		if( valueFunction.equals("udf_unitId") ){
 
 			if(valueName.equals("UNIT_ID")){
-				unitMsg.unitId = value;
+				messageControl.unitId = value;
 			}
 			else if(valueName.equals("SERIAL_NUMBER") && !sensorRf.excludeRF){
-				unitMsg.tempUnitId = unitMsg.unitId;
+				tempUnitId = messageControl.unitId;
 			}
 			if( sensorRf.sensor == 1){	
 				sensorRf.s1_serialNo = value;
-				unitMsg.unitId = sensorRf.s1_serialNo;
+				messageControl.unitId = sensorRf.s1_serialNo;
 				return true;
 			}
 			else if( sensorRf.sensor == 2){					
 				sensorRf.s2_serialNo = value;
-				unitMsg.unitId = sensorRf.s2_serialNo;
+				messageControl.unitId = sensorRf.s2_serialNo;
 				return true;
 			}
 			else if( sensorRf.sensor == 3){		
 				sensorRf.s3_serialNo = value;
-				unitMsg.unitId = sensorRf.s3_serialNo;
+				messageControl.unitId = sensorRf.s3_serialNo;
 				return true;
 			}
 			else if( sensorRf.sensor == 4){			
 				sensorRf.s4_serialNo = value;
-				unitMsg.unitId = sensorRf.s4_serialNo;
+				messageControl.unitId = sensorRf.s4_serialNo;
 				return true;
 			}
 			else if( sensorRf.sensor == 5){	
 				sensorRf.s5_serialNo = value;
-				unitMsg.unitId = sensorRf.s5_serialNo;
+				messageControl.unitId = sensorRf.s5_serialNo;
 				return true;
 			}
 			else if( sensorRf.sensor == 6){			
 				sensorRf.s6_serialNo = value;
-				unitMsg.unitId = sensorRf.s6_serialNo;
+				messageControl.unitId = sensorRf.s6_serialNo;
 				return true;
 			}
 			else if( sensorRf.sensor == 7){		
 				sensorRf.s7_serialNo = value;
-				unitMsg.unitId = sensorRf.s7_serialNo;
+				messageControl.unitId = sensorRf.s7_serialNo;
 				return true;
 			}
 			else if( sensorRf.sensor == 8){		
 				sensorRf.s8_serialNo = value;
-				unitMsg.unitId = sensorRf.s8_serialNo;
+				messageControl.unitId = sensorRf.s8_serialNo;
 				return true;
 			}
 			else if( sensorRf.sensor == 9){			
 				sensorRf.s9_serialNo = value;
-				unitMsg.unitId = sensorRf.s9_serialNo;
+				messageControl.unitId = sensorRf.s9_serialNo;
 				return true;
 			}
 			else if( sensorRf.sensor == 10){					
 				sensorRf.s10_serialNo = value;
-				unitMsg.unitId = sensorRf.s10_serialNo;
+				messageControl.unitId = sensorRf.s10_serialNo;
 				return true;
 			}
 		}			
@@ -840,10 +855,7 @@ private int hexStringToInt(String input) {
 		
 		this.dataDefinitions = dataDefinitions;
 	}
-	public void setUnitMsg(UnitMessage unitMsg){
-		
-		this.unitMsg = unitMsg;
-	}
+
 
 	public void setUnitDataDefinitions(Map<String, UnitDataDefinition> unitDataDefinitions) {
 		
@@ -856,10 +868,7 @@ private int hexStringToInt(String input) {
 		
 	}
 
-	public UnitMessage getUnitMsg() {
-		// TODO Auto-generated method stub
-		return this.unitMsg;
-	}
+
 
 	public LocomotiveMonitoringUnit getMessageLMU() {
 		// TODO Auto-generated method stub

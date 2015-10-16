@@ -13,18 +13,10 @@
       <cm:property name="amq.username" value="admin"/>
       <cm:property name="amq.password" value="admin"/>
       <cm:property name="amq.url" value="discovery:(fabric:latlon)"/>
-      <cm:property name="db.username" value="sa"/>
-      <cm:property name="db.password" value="September00"/>
-      <cm:property name="db.url" value="jdbc:sqlserver://localhost;databaseName=main_test2"/>
     </cm:default-properties>
   </cm:property-placeholder>
   
-  <cm:property-placeholder id="SqlPropeties" persistent-id="sql.properties">
-  	<cm:default-properties>
-      <cm:property name="sql.selectMessage" value="Select TOP 1 * FROM MESSAGE_DECODER_QUEUE"/>
-      <cm:property name="sql.deleteMessage" value="DELETE FROM MESSAGE_REPORT_v2 WHERE MESSAGE_ID \= \:\#MESSAGE_ID"/>
-    </cm:default-properties>
-  </cm:property-placeholder>
+  
 <!-- Imported OSGi services include the Transaction manager and JDBC DataSource -->
  <!--  
 <reference id="LatLon-db" interface="javax.sql.DataSource" availability="mandatory" filter="(datasource.name=SQL_Src_LL)"/> 
@@ -42,19 +34,30 @@
 <!--*************************************************************************************************************************-->
 
   
-<!-- configure the Camel SQL component to use the JDBC data source -->
-<bean id="sqlSrc" class="org.apache.camel.component.sql.SqlComponent">
-  <property name="dataSource" ref="LatLon-db"/>
-</bean>
-
 
 <!--*************** this is the JMS data source for AMQ *******************************************************-->
- 
- 
+  <bean id="jmsConnectionFactory" class="org.apache.activemq.ActiveMQConnectionFactory">
+    <!--  property name="brokerURL" value="discovery:(fabric:latlon)"/-->
+    <property name="brokerURL" value="tcp://localhost:61616"/>
+    <property name="userName" value="admin"/>
+    <property name="password" value="admin"/>
+  </bean>
+
+  <bean id="pooledConnectionFactory" class="org.apache.activemq.pool.PooledConnectionFactory">
+    <property name="maxConnections" value="1"/>
+    <property name="maximumActiveSessionPerConnection" value="500"/>
+    <property name="connectionFactory" ref="jmsConnectionFactory"/>
+  </bean>
+
+  <bean id="activemq" class="org.apache.activemq.camel.component.ActiveMQComponent">
+    <property name="connectionFactory" ref="pooledConnectionFactory"/>
+  </bean>
+<!--*************** this is the JMS data source for AMQ *******************************************************--> 
+
   
    <bean
-    id="decrypter"
-    class="bsm.prototype.dcl.latlon.Decrypter"
+    id="decoder"
+    class="bsm.dcl.latlon.Decoder"
     activation="eager">
     <property name="deviceConfigService">
       <reference
@@ -63,19 +66,15 @@
     </property>
   </bean>
   
-  <camelContext xmlns="http://camel.apache.org/schema/blueprint">
+  <camelContext id="DecodingDCL" xmlns="http://camel.apache.org/schema/blueprint">
   <dataFormats>
-    <json library="Jackson" id="jasonFormater" prettyPrint="true" include="NON_NULL"/>
+    <json library="Jackson" id="jsonFormater" prettyPrint="true" include="NON_NULL"/>
   </dataFormats>
-  <route id="LatLonDbToAMQ">
-    <from uri="sqlSrc:{{sql.selectMessage}}?consumer.delay=500000" id="Select Raw Message">
-      <description>New messages from LatLon Database using provided view</description>
-    </from>
-    <bean ref="decrypter" method="decryptMsg" id="Decryptor Bean"/>
-    <log message="Decrypted Message is : ${body}" loggingLevel="INFO" id="Trace Decrypted Msg"/>
-    <bean ref="decrypter" method="decodeMsg" id="Decoder Bean"/>
-    <log message="Decoded Message is : ${body}" loggingLevel="INFO" id="Trace Decoded Msg"/>
-    <marshal ref="jasonFormater" id="Format to JSON"/>
+  <route id="DecodingDCL">
+    <from uri="activemq:queue:DECRYPTED_MSG" id="Receive from decrypted Q"/>
+    <log message="Received Decrypted Message from Q as : ${body}" loggingLevel="INFO" id="Trace Decoded Msg"/>
+    <bean ref="decoder" method="decodeMsg" id="Decoder Bean"/>
+    <marshal ref="jsonFormater" id="Format to JSON"/>
     <to uri="file:C:/temp"/>
     <log message="JSON Message is : ${body}" loggingLevel="INFO" id="Trace JSON Msg"/>
   </route>
