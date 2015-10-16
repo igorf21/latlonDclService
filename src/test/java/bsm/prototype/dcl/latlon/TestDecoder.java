@@ -101,9 +101,6 @@ public class TestDecoder {
 			decrypter.setDateFormat(dateFormat);
 			String network ="K";
 			
-			
-			0337F980
-			
 			//decrypter.decodeTest(decryptedMsg, network );	
 			
 			// Check results
