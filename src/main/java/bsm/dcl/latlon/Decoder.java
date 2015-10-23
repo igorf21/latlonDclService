@@ -67,10 +67,20 @@ public class Decoder {
 
 	// Helper members
 	private SimpleDateFormat dateFormat;
+	
 	boolean hasuStu;
+	
 	private Integer uStuMsgTypeId;
 
 	private String tempUnitId;
+
+	private String stuDttm;
+
+	private String stuUnitId;
+
+	private String stuMessageType;
+
+	private int createTwo;
 	
 
 	
@@ -179,8 +189,8 @@ public class Decoder {
 				}
 				else if((ddId == 304 || ddId == 303) && hasLlap == false)
 				{
-					//messageSTU.uStuDttm = s1_txDttm;
-					//uStuUnitId = s1_serialNo;
+					stuDttm = sensorRf.s1_txDttm;
+					stuUnitId = sensorRf.s1_serialNo;
 					hasLlap = true;
 					
 				}
@@ -230,9 +240,23 @@ public class Decoder {
 					dataDefinition = dataDefinitions.get(ddIdKey);	
 				
 				}
-		}				
+		}
+		formatStuValues();
 	}
 			
+
+	private void formatStuValues() {
+		if(hasuStu){
+			if(stuMessageType == null)
+				stuMessageType = "0";
+			
+			messageControl.unitId = stuUnitId;
+			messageControl.unitDttm = stuDttm;
+			messageControl.messageType = stuMessageType;
+			
+		}
+	}
+
 
 	private void breadcrumbRecording(String decryptedPacket) {
 		 //throw new  UnsupportedOperationException("Breadcrumb Not implemented yet");
@@ -408,7 +432,12 @@ public class Decoder {
 		String valueFunction = dataDefinition.getFunction();
 		if( valueFunction.equals("udf_MsgType") && dataDefinition.getName().equals("MESSAGE_TYPE") )
 		{
-			uStuMsgTypeId = Integer.decode("0x"+value);
+			this.stuMessageType = Integer.decode("0x"+value).toString();	;
+				return true;
+		}
+		else if( valueFunction.equals("udf_ota") && dataDefinition.getName().equals("MESSAGE_TYPE") )
+		{
+			messageControl.messageType = Integer.decode("0x"+value).toString();			
 				return true;
 		}
 		return false;
